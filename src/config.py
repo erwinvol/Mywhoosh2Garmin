@@ -41,6 +41,12 @@ class Config:
     # Operational settings
     log_level: str = "INFO"
 
+    # Webhook server for Home Assistant and external on-demand triggers
+    webhook_enabled: bool = True
+    webhook_host: str = "0.0.0.0"
+    webhook_port: int = 8080
+    webhook_token: str = ""
+
     @classmethod
     def from_env(cls) -> "Config":
         """Load configuration from environment variables."""
@@ -106,6 +112,11 @@ class Config:
 
         log_level = os.getenv("LOG_LEVEL", "INFO").upper()
 
+        webhook_enabled = os.getenv("WEBHOOK_ENABLED", "true").lower() in ("true", "1", "yes")
+        webhook_host = os.getenv("WEBHOOK_HOST", "0.0.0.0").strip() or "0.0.0.0"
+        webhook_port = int(os.getenv("WEBHOOK_PORT", "8080"))
+        webhook_token = os.getenv("WEBHOOK_TOKEN", os.getenv("SYNC_WEBHOOK_TOKEN", "")).strip()
+
         return cls(
             mywhoosh_email=mywhoosh_email,
             mywhoosh_password=mywhoosh_password,
@@ -122,4 +133,8 @@ class Config:
             device_software_version=device_sw,
             athlete_ftp=ftp,
             log_level=log_level,
+            webhook_enabled=webhook_enabled,
+            webhook_host=webhook_host,
+            webhook_port=webhook_port,
+            webhook_token=webhook_token,
         )

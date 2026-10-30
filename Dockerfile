@@ -10,7 +10,7 @@ LABEL maintainer="erwinvol" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.created="${CREATED}" \
-      org.opencontainers.image.source="https://github.com/erwinvol/MyWhoosh2Garmin" \
+      org.opencontainers.image.source="https://github.com/erwinvol/Mywhoosh2garmin" \
       org.opencontainers.image.licenses="MIT"
 
 ENV PYTHONUNBUFFERED=1 \
@@ -32,6 +32,8 @@ RUN mkdir -p /data/garmin_tokens
 COPY src/ /app/src/
 
 VOLUME ["/data"]
+
+EXPOSE 8080
 
 ENTRYPOINT ["python", "-m", "src.main"]
 CMD ["--daemon"]

@@ -7,11 +7,13 @@ import signal
 import sys
 import time
 from datetime import datetime
+from typing import Optional
 
 from src import __version__
 from src.config import Config
 from src.garmin_client import format_local_datetime
 from src.sync_engine import SyncEngine
+from src.webhook_server import WebhookServer
 
 try:
     locale.setlocale(locale.LC_TIME, "")
@@ -71,6 +73,11 @@ def parse_args() -> argparse.ArgumentParser:
         action="store_true",
         help="Display recent sync history and statistics from the database.",
     )
+    parser.add_argument(
+        "--webhook",
+        action="store_true",
+        help="Run standalone webhook server for Home Assistant triggers.",
+    )
     return parser
 
 
@@ -85,7 +92,6 @@ def main() -> int:
         nonlocal stop_requested
         logging.info("Received termination signal (%s). Shutting down cleanly...", sig)
         stop_requested = True
-
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
@@ -119,31 +125,78 @@ def main() -> int:
             )
         return 0
 
+    # Standalone Webhook server mode
+    if args.webhook:
+        server = WebhookServer(
+            engine=engine,
+            host=config.webhook_host,
+            port=config.webhook_port,
+            webhook_token=config.webhook_token,
+        )
+        logger.info(
+            "Starting standalone webhook server on http://%s:%d (auth: %s)...",
+            config.webhook_host,
+            config.webhook_port,
+            "configured" if config.webhook_token else "none (open)",
+        )
+        server.start_background()
+        while not stop_requested:
+            time.sleep(1)
+        server.stop()
+        logger.info("Standalone webhook server stopped gracefully.")
+        return 0
+
     batch_size = 1 if args.sync_latest else (args.batch or config.sync_batch_size)
 
     # Daemon mode
     if args.daemon:
-        interval_minutes = args.interval or config.sync_interval_minutes
-        interval_seconds = max(60, interval_minutes * 60)
-        logger.info(
-            "Entering daemon mode. Polling interval: %d minutes (%d seconds).",
-            interval_minutes,
-            interval_seconds,
-        )
+        interval_minutes = args.interval if args.interval is not None else config.sync_interval_minutes
 
-        while not stop_requested:
+        webhook_srv: Optional[WebhookServer] = None
+        if config.webhook_enabled:
             try:
-                engine.run_sync(limit=batch_size, dry_run=args.dry_run)
+                webhook_srv = WebhookServer(
+                    engine=engine,
+                    host=config.webhook_host,
+                    port=config.webhook_port,
+                    webhook_token=config.webhook_token,
+                )
+                webhook_srv.start_background()
             except Exception as exc:
-                logger.exception("Unexpected error during sync cycle: %s", exc)
+                logger.error("Failed to start webhook server: %s", exc)
 
-            logger.info("Sleeping for %d minutes until next sync cycle...", interval_minutes)
-
-            # Sleep in 1-second chunks to respond quickly to SIGTERM
-            for _ in range(interval_seconds):
-                if stop_requested:
-                    break
+        if interval_minutes <= 0:
+            logger.info(
+                "Periodic polling disabled (SYNC_INTERVAL_MINUTES=%d). Operating exclusively in on-demand webhook mode.",
+                interval_minutes,
+            )
+            while not stop_requested:
                 time.sleep(1)
+        else:
+            interval_seconds = max(60, interval_minutes * 60)
+            logger.info(
+                "Entering daemon mode. Polling interval: %d minutes (%d seconds).",
+                interval_minutes,
+                interval_seconds,
+            )
+
+            while not stop_requested:
+                try:
+                    engine.run_sync(limit=batch_size, dry_run=args.dry_run)
+                except Exception as exc:
+                    logger.exception("Unexpected error during sync cycle: %s", exc)
+
+                logger.info("Sleeping for %d minutes until next sync cycle...", interval_minutes)
+
+                # Sleep in 1-second chunks to respond quickly to SIGTERM
+                for _ in range(interval_seconds):
+                    if stop_requested:
+                        break
+                    time.sleep(1)
+
+        if webhook_srv:
+            logger.info("Stopping webhook server...")
+            webhook_srv.stop()
 
         logger.info("Daemon stopped gracefully.")
         return 0

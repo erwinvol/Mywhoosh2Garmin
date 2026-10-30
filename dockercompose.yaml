@@ -1,0 +1,43 @@
+services:
+  mywhoosh2garmin:
+    build: .
+    image: mywhoosh2garmin:latest
+    container_name: mywhoosh2garmin
+    restart: unless-stopped
+    ports:
+      - "${WEBHOOK_PORT:-8080}:8080"
+    environment:
+      # MyWhoosh Credentials
+      - MYWHOOSH_EMAIL=your_mywhoosh_email@example.com
+      - MYWHOOSH_PASSWORD=your_mywhoosh_password
+
+      # Garmin Connect Credentials (optional if tokens exist in data/garmin_tokens)
+      - GARMIN_USERNAME=your_garmin_email@example.com
+      - GARMIN_PASSWORD=your_garmin_password
+
+      # Storage directories inside container
+      - DATA_DIR=/data
+      - GARMIN_TOKEN_DIR=/data/garmin_tokens
+
+      # Sync Configuration (Set to 0 to disable periodic polling and rely exclusively on Home Assistant webhooks)
+      - SYNC_INTERVAL_MINUTES=60
+      - SYNC_BATCH_SIZE=10
+      - CHECK_DUPLICATES=true
+      - DUPLICATE_THRESHOLD_HOURS=2
+
+      # Webhook Configuration (On-Demand Sync Trigger from Home Assistant)
+      - WEBHOOK_ENABLED=${WEBHOOK_ENABLED:-true}
+      - WEBHOOK_PORT=8080
+      - WEBHOOK_HOST=0.0.0.0
+      - WEBHOOK_TOKEN=${WEBHOOK_TOKEN:-}
+
+      # FIT Device Spoofing (3927: Garmin Edge 1040, 4024: Garmin Edge 840)
+      - SPOOF_GARMIN_DEVICE=true
+      - DEVICE_PRODUCT_ID=3927
+      - DEVICE_SOFTWARE_VERSION=27.10
+      - ATHLETE_FTP=0
+
+      # Logging level
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./data:/data

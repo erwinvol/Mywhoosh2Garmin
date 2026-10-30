@@ -40,6 +40,26 @@ class TestConfig(unittest.TestCase):
             cfg = Config.from_env()
             self.assertEqual(cfg.sync_interval_minutes, 60)
             self.assertEqual(cfg.garmin_token_dir, cfg.data_dir / "garmin_tokens")
+            self.assertTrue(cfg.webhook_enabled)
+            self.assertEqual(cfg.webhook_host, "0.0.0.0")
+            self.assertEqual(cfg.webhook_port, 8080)
+            self.assertEqual(cfg.webhook_token, "")
+
+    def test_webhook_config_custom(self):
+        env_vars = {
+            "MYWHOOSH_EMAIL": "test@example.com",
+            "MYWHOOSH_PASSWORD": "secretpassword",
+            "WEBHOOK_ENABLED": "false",
+            "WEBHOOK_HOST": "127.0.0.1",
+            "WEBHOOK_PORT": "9090",
+            "WEBHOOK_TOKEN": "secret_abc_123",
+        }
+        with patch.dict(os.environ, env_vars, clear=True):
+            cfg = Config.from_env()
+            self.assertFalse(cfg.webhook_enabled)
+            self.assertEqual(cfg.webhook_host, "127.0.0.1")
+            self.assertEqual(cfg.webhook_port, 9090)
+            self.assertEqual(cfg.webhook_token, "secret_abc_123")
 
 
 if __name__ == "__main__":

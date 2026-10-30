@@ -60,8 +60,8 @@ Packaged as a lightweight, containerized Docker service suitable for running on 
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/erwinvol/MyWhoosh2Garmin.git
-cd MyWhoosh2Garmin
+git clone https://github.com/erwinvol/Mywhoosh2garmin.git
+cd Mywhoosh2garmin
 ```
 
 ### 2. Configure Environment Variables in `docker-compose.yml`
@@ -75,6 +75,8 @@ services:
     image: mywhoosh2garmin:latest
     container_name: mywhoosh2garmin
     restart: unless-stopped
+    ports:
+      - "${WEBHOOK_PORT:-8080}:8080"
     environment:
       - MYWHOOSH_EMAIL=your_mywhoosh_email@example.com
       - MYWHOOSH_PASSWORD=your_mywhoosh_password
@@ -82,7 +84,11 @@ services:
       - GARMIN_PASSWORD=your_garmin_password
       - DATA_DIR=/data
       - GARMIN_TOKEN_DIR=/data/garmin_tokens
+      # Sync interval (minutes) - Set to 0 to disable polling and use only Home Assistant webhooks
       - SYNC_INTERVAL_MINUTES=60
+      - WEBHOOK_ENABLED=true
+      - WEBHOOK_PORT=8080
+      - WEBHOOK_TOKEN=your_secret_token
     volumes:
       - ./data:/data
 ```
@@ -164,7 +170,88 @@ All settings can be configured directly inside `docker-compose.yml`, environment
 | `DEVICE_PRODUCT_ID` | `3927` | Garmin Device ID (`3927` = Edge 1040, `4024` = Edge 840) |
 | `DEVICE_SOFTWARE_VERSION` | `27.10` | Device firmware version reported in FIT header |
 | `ATHLETE_FTP` | `0` | Optional FTP wattage for Normalized Power / TSS calculations |
+| `WEBHOOK_ENABLED` | `true` | Enable lightweight HTTP webhook server for on-demand triggers |
+| `WEBHOOK_PORT` | `8080` | Port for the webhook server |
+| `WEBHOOK_HOST` | `0.0.0.0` | Bind host for the webhook server |
+| `WEBHOOK_TOKEN` | *(empty)* | Secret bearer token for authenticating webhook requests |
 | `LOG_LEVEL` | `INFO` | Logging verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+
+---
+
+## 🏠 Home Assistant On-Demand Webhook Trigger
+
+To eliminate unnecessary periodic API polling against MyWhoosh and Garmin, you can trigger a synchronization on-demand (e.g., when your indoor ride or smart trainer powers off).
+
+### 1. Configure MyWhoosh2Garmin
+In your `.env` or `docker-compose.yml`:
+```bash
+# Set polling to 0 to disable timed API pings
+SYNC_INTERVAL_MINUTES=0
+
+# Configure webhook listener
+WEBHOOK_ENABLED=true
+WEBHOOK_PORT=8080
+WEBHOOK_TOKEN=your_secure_webhook_token_here
+```
+
+### 2. Configure Home Assistant (`secrets.yaml` & `configuration.yaml`)
+
+In `secrets.yaml`:
+```yaml
+mywhoosh_webhook_token: "your_secure_webhook_token_here"
+```
+
+In `configuration.yaml`:
+```yaml
+rest_command:
+  trigger_mywhoosh_sync:
+    url: "http://<mywhoosh2garmin-host-ip>:8080/sync"
+    method: POST
+    headers:
+      X-Webhook-Token: "!secret mywhoosh_webhook_token"
+    timeout: 30
+```
+
+*(Optional)* Monitor MyWhoosh2Garmin health/status with a REST sensor in Home Assistant:
+```yaml
+sensor:
+  - platform: rest
+    name: "MyWhoosh2Garmin Status"
+    resource: "http://<mywhoosh2garmin-host-ip>:8080/health"
+    value_template: "{{ value_json.status }}"
+    json_attributes:
+      - is_syncing
+      - last_sync_time
+      - uptime_seconds
+    scan_interval: 300
+```
+
+### 3. Home Assistant Automation Example (Smart Trainer Power Sensing)
+
+Trigger when your smart trainer plug reports power dropping below 15W for 2 minutes after a workout:
+
+```yaml
+alias: "MyWhoosh: Sync on Workout Finish"
+trigger:
+  - platform: numeric_state
+    entity_id: sensor.smart_trainer_power
+    below: 15
+    for:
+      minutes: 2
+action:
+  - service: rest_command.trigger_mywhoosh_sync
+```
+
+### 4. Manual Verification via `curl`
+```bash
+# Background asynchronous trigger (recommended for Home Assistant)
+curl -X POST http://<mywhoosh2garmin-host-ip>:8080/sync \
+  -H "X-Webhook-Token: your_secure_webhook_token_here"
+
+# Synchronous execution waiting for result
+curl -X POST "http://<mywhoosh2garmin-host-ip>:8080/sync?wait=true" \
+  -H "X-Webhook-Token: your_secure_webhook_token_here"
+```
 
 ---
 
